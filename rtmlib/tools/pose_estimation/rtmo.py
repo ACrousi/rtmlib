@@ -33,12 +33,12 @@ class RTMO(BaseTool):
         image, ratio = self.preprocess(image)
         outputs = self.inference(image)
 
-        keypoints, scores = self.postprocess(outputs, ratio, nms_thr, score_thr)
+        final_bboxes, keypoints, final_boxes_scores, keypoints_scores = self.postprocess(outputs, ratio, nms_thr, score_thr)
 
         if self.to_openpose:
             keypoints, scores = convert_coco_to_openpose(keypoints, scores)
 
-        return keypoints, scores
+        return final_bboxes, keypoints, final_boxes_scores, keypoints_scores
 
     def preprocess(self, img: np.ndarray):
         """Do preprocessing for RTMPose model inference.
@@ -98,21 +98,28 @@ class RTMO(BaseTool):
         det_outputs, pose_outputs = outputs
 
         # onnx contains nms module (?)
-        final_boxes, final_scores = (det_outputs[0, :, :4], det_outputs[0, :, 4])
+        final_boxes, final_boxes_scores = (det_outputs[0, :, :4], det_outputs[0, :, 4])   # boxes scores
         final_boxes /= ratio
-        keypoints, scores = pose_outputs[0, :, :, :2], pose_outputs[0, :, :, 2]
+        keypoints, keypoints_scores = pose_outputs[0, :, :, :2], pose_outputs[0, :, :, 2]
         keypoints = keypoints / ratio
 
         # apply nms
         dets, keep = multiclass_nms(final_boxes, 
-                    final_scores[:, np.newaxis],
+                    final_boxes_scores[:, np.newaxis],
                     nms_thr=nms_thr,
                     score_thr=score_thr)
         if keep is not None:
             keypoints = keypoints[keep]
-            scores = scores[keep]
+            keypoints_scores = keypoints_scores[keep]
+            final_boxes = dets[:, :4]  # bboxes axis
+            final_boxes_scores = final_boxes_scores[keep]
         else:
             keypoints = np.expand_dims(np.zeros_like(keypoints[0]), axis=0)
-            scores = np.expand_dims(np.zeros_like(scores[0]), axis=0)
+            keypoints_scores = np.expand_dims(np.zeros_like(keypoints_scores[0]), axis=0)   # keypoint scores
+            final_boxes = np.expand_dims(np.zeros_like(final_boxes[0]), axis=0)
+            final_boxes_scores = np.expand_dims(np.zeros_like(final_boxes_scores[0]), axis=0)     
+            # final_bboxes = np.empty((0, 4), dtype=final_boxes.dtype)
+            # final_boxes_scores = np.empty((0,), dtype=final_boxes_scores.dtype)
 
-        return keypoints, scores
+
+        return final_boxes, keypoints, final_boxes_scores, keypoints_scores

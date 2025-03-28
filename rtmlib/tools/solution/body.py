@@ -41,7 +41,7 @@ while cap.isOpened():
 
 '''
 import numpy as np
-
+import os
 
 class Body:
     MODE = {
@@ -90,55 +90,30 @@ class Body:
     }
 
     def __init__(self,
-                 det: str = None,
-                 det_input_size: tuple = (640, 640),
-                 pose: str = None,
                  pose_input_size: tuple = (288, 384),
-                 mode: str = 'balanced',
+                 weight: str = 'balanced',
                  to_openpose: bool = False,
                  backend: str = 'onnxruntime',
                  device: str = 'cpu'):
+            
+        from .. import RTMO
 
-        if pose is not None and 'rtmo' in pose:
-            from .. import RTMO
-
-            self.one_stage = True
-
-            pose = self.RTMO_MODE[mode]['pose']
-            pose_input_size = self.RTMO_MODE[mode]['pose_input_size']
-            self.pose_model = RTMO(pose,
-                                   model_input_size=pose_input_size,
-                                   to_openpose=to_openpose,
-                                   backend=backend,
-                                   device=device)
+        if weight in self.RTMO_MODE:
+            pose = self.RTMO_MODE[weight]['pose']
+            pose_input_size = self.RTMO_MODE[weight]['pose_input_size']
         else:
-            from .. import YOLOX, RTMPose
+            if not (os.path.exists(weight)):
+                raise ValueError("Weight must be one of the predefined options in RTMO_MODE or a valid .zip file path.")
+            pose = weight
 
-            self.one_stage = False
-
-            if pose is None:
-                pose = self.MODE[mode]['pose']
-                pose_input_size = self.MODE[mode]['pose_input_size']
-
-            if det is None:
-                det = self.MODE[mode]['det']
-                det_input_size = self.MODE[mode]['det_input_size']
-
-            self.det_model = YOLOX(det,
-                                   model_input_size=det_input_size,
-                                   backend=backend,
-                                   device=device)
-            self.pose_model = RTMPose(pose,
-                                      model_input_size=pose_input_size,
-                                      to_openpose=to_openpose,
-                                      backend=backend,
-                                      device=device)
+        pose_input_size = self.RTMO_MODE[weight]['pose_input_size']
+        self.pose_model = RTMO(pose,
+                                model_input_size=pose_input_size,
+                                to_openpose=to_openpose,
+                                backend=backend,
+                                device=device)
 
     def __call__(self, image: np.ndarray):
-        if self.one_stage:
-            keypoints, scores = self.pose_model(image)
-        else:
-            bboxes = self.det_model(image)
-            keypoints, scores = self.pose_model(image, bboxes=bboxes)
+        bboxes, keypoints, scores = self.pose_model(image)
 
-        return keypoints, scores
+        return bboxes, keypoints, scores
